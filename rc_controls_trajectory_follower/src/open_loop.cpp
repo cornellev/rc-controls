@@ -2,20 +2,14 @@
 #include <rc_trajectory_follower/TrajectoryMsg.h>
 #include <ackermann_msgs/AckermannDrive.h>
 
-
-class TrajectoryFollower
-{
-private:
-    rc_trajectory_follower::TrajectoryMsg last_trajectory;
-
-public:
-    TrajectoryFollower()
-    {}
-
-    void trajectory_callback(rc_trajectory_follower::TrajectoryMsg trajectory)
-    {
-        last_trajectory = trajectory;
-    }
+class TrajectoryFollower {
+    private:
+        rc_trajectory_follower::TrajectoryMsg last_trajectory;
+    public: 
+        void trajectory_callback(const rc_trajectory_follower::TrajectoryMsg& trajectory)
+        {
+            last_trajectory = trajectory;
+        }
 
     ackermann_msgs::AckermannDrive calculate_setpoint()
     {
@@ -29,17 +23,20 @@ public:
     }
 };
 
+
+
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "trajectory_follower");
     ros::NodeHandle nh("~");
 
-    TrajectoryFollower follower ();
+    TrajectoryFollower follower;
+    
+    ros::Publisher pub = nh.advertise<ackermann_msgs::AckermannDrive>("rc_movement_msg", 10);
+    ros::Subscriber sub = nh.subscribe("trajectory_msg", 10, &TrajectoryFollower::trajectory_callback, &follower);
+    
 
-    ros::Publisher pub = nh.subscribe("trajectory_msg", 10, follower.trajectory_callback);
-    ros::Subscriber sub = nh.advertise<ackermann_msgs::AckermannDrive>("rc_movement_msg", 10)
-
-    ros::Rate rate = ros::Rate(10);
+    ros::Rate rate(10.0);
 
     while (ros::ok())
     {
