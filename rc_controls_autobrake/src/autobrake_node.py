@@ -28,6 +28,7 @@ VEHICLE_WIDTH = 0.2
 AUTOBRAKE_TIME = .7
 AUTOBRAKE_DISTANCE = .2
 MAX_VEL = 1.5
+MIN_VEL = -1.5
 
 MIN_COLLISIONS_FOR_BRAKE = 3
 LIDAR_ROTATIONAL_OFFSET = math.pi
@@ -36,8 +37,11 @@ LIDAR_HORIZONTAL_OFFSET = .035 # From center of front axle
 steering_angle = 0
 velocity = 0
 target_velocity = 0
-brake = Float32()
-brake.data = MAX_VEL
+
+max_brake = Float32()
+min_brake = Float32()
+max_brake.data = MAX_VEL
+min_brake.data = -MAX_VEL
 
 def max_velocity(dist):
     if dist < 0:
@@ -52,14 +56,19 @@ def autobrake_time(vel):
     return AUTOBRAKE_TIME + vel * .1 + (.3 if vel > 1.8 else 0)
 
 def check_collision(data: LaserScan):
-    invert_flag = 1
+    invert_x_flag = 1
+    invert_y_flag = 1
 
     min_vel = MAX_VEL
 
     if steering_angle < 0:  # If the steering angle negative, flip all coordinates across the x-axis to keep calculations consistent
-        invert_flag = -1
+        invert_x_flag = -1
 
-    turning_radius = VEHICLE_LENGTH / math.tan(invert_flag * steering_angle) if abs(steering_angle) > .01 else float('inf')  # Calculate turning radius
+    if velocity < 0:  # If the velocity is negative, flip all coordinates across the y-axis to keep calculations consistent
+        invert_y_flag = -1
+        min_vel = -MIN_VEL
+
+    turning_radius = VEHICLE_LENGTH / math.tan(invert_x_flag * steering_angle) if abs(steering_angle) > .01 else float('inf')  # Calculate turning radius
 
     # Calculate turning radii of inside and outside wheels
     inner_wheel_radius = turning_radius - VEHICLE_WIDTH/2
@@ -74,8 +83,8 @@ def check_collision(data: LaserScan):
         # X and Y coordinates of obstacle relative to vehicle
         theta = (LIDAR_ROTATIONAL_OFFSET + data.angle_min + i * data.angle_increment)
         r = data.ranges[i]
-        x = invert_flag * (r * math.sin(theta) + LIDAR_HORIZONTAL_OFFSET)
-        y = r * math.cos(theta)
+        x = invert_x_flag * (r * math.sin(theta) + LIDAR_HORIZONTAL_OFFSET)
+        y = invert_y_flag * (r * math.cos(theta))
 
         if turning_radius == float('inf'):  # Straight line forward
             if abs(x) < VEHICLE_WIDTH/2:  # If the obstacle is within the width of the vehicle, then record dist and time to collision
@@ -100,7 +109,12 @@ def check_collision(data: LaserScan):
         if dist_to_obstacle >= 0:
             min_vel = min(min_vel, max_velocity(dist_to_obstacle))
 
-    brake.data = min_vel
+    if invert_y_flag == -1:
+        max_brake.data = MAX_VEL
+        min_brake.data = -min_vel
+    else:
+        max_brake.data = min_vel
+        min_brake.data = -MAX_VEL
 
 
 def set_vars(data):
@@ -119,17 +133,19 @@ def set_targets(data):
 if __name__ == '__main__':
     rospy.init_node('autobrake')
 
-    sub = rospy.Subscriber('scan', LaserScan, check_collision)
-    sub = rospy.Subscriber('sensor_collect', SensorCollect, set_vars)
-    sub = rospy.Subscriber('rc_movement_msg', AckermannDrive, set_targets)
+    sub_scan = rospy.Subscriber('scan', LaserScan, check_collision)
+    sub_sensor = rospy.Subscriber('sensor_collect', SensorCollect, set_vars)
+    sub_movement = rospy.Subscriber('rc_movement_msg', AckermannDrive, set_targets)
 
-    pub = rospy.Publisher('auto_max_vel', Float32, queue_size=1)
+    pub_max = rospy.Publisher('auto_max_vel', Float32, queue_size=1)
+    pub_min = rospy.Publisher('auto_min_vel', Float32, queue_size=1)
 
     rospy.loginfo("Autobrake node initialized.")
 
     rate = rospy.Rate(30)
 
     while not rospy.is_shutdown():
-        pub.publish(brake)
+        pub_max.publish(max_brake)
+        pub_min.publish(min_brake)
         rate.sleep()
 
